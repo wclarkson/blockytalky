@@ -97,6 +97,18 @@ pre,
   border: none;
   resize: none;
 }
+#encval1 {
+  width: 60px;
+}
+#encval2 {
+  width: 60px;
+}
+#encval3 {
+  width: 60px;
+}
+#encval4 {
+  width: 60px;
+}
 iframe {
   width: 100%;
   height: 100%;
