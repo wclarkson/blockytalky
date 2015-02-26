@@ -341,7 +341,13 @@
     <category name="{msg meaning="Code.catProcedures" desc="category - blocks related to [http://en.wikipedia.org/wiki/Subroutine defining or using procedures/functions]."}Procedures{/msg}" custom="PROCEDURE" id="Procedures"></category>
     <category name="Music" id="MUSIC">
 	  <block type="music_specify_maestro_address"></block>
-	  <block type="music_set_tempo"></block>
+	  <block type="music_set_tempo">
+                <value name="tempo">
+                        <block type="math_number">
+                                <title name="NUM">120</title>
+                        </block>
+                </value>
+        </block>
 	  <block type="music_play_with"></block>
       <block type="music_note"></block>
       <block type="music_rest"></block>

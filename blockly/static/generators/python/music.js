@@ -50,9 +50,14 @@ Blockly.Language.music_set_tempo = {
 	helpUrl: '',
 	init: function() {
 		this.setColour(0);
-		this.appendDummyInput("")
-			.appendTitle("Specify maestro's tempo: ")
-			.appendTitle(new Blockly.FieldTextInput("120"), "tempo");
+		
+		this.appendValueInput('tempo')
+            .setCheck('Number')
+            .appendTitle("Specify maestro's tempo: ");
+
+        //this.setInputsInLine(true);
+        this.setOutput(false);
+
 		this.setPreviousStatement(true);
 		this.setNextStatement(true);
 		this.setTooltip("Sets the maestro machine's tempo.");
