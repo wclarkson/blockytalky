@@ -9,6 +9,9 @@ import socket
 import threading
 import time
 import websocket
+import struct
+import SocketServer
+from datetime import datetime
 import pika
 import blockly_webserver
 import urllib
@@ -18,11 +21,17 @@ from blockytalky_id import *
 from message import *
 import traceback
 
+LOCAL_IP_LISTING_EXPIRATION = 15 # seconds
+UDP_MULTICAST_IP = "224.0.0.1"
+UDP_MULTICAST_DELAY = 10 # seconds
+UDP_PORT = 9999
+
 logger = logging.getLogger(__name__)
 
 class Communicator(object):
     hostname = BlockyTalkyID()
     recipients = {}                     # Filled by "createWebSocket"
+    localunits = {}
     restartQueue = deque()
     mostRecentCode = None
 
@@ -197,16 +206,66 @@ class Communicator(object):
         logger.info("Declaring HwVal callback...")
         self.msgout_channel.basic_consume(self.handle_msgout_delivery, queue=queue_name, no_ack=True)
     
-
     def handle_msgout_delivery(self, channel, method, header, body):
+        def can_send_local(name):
+            if name in localunits:
+                if datetime.now() - localunits[name][1] < LOCAL_IP_LISTING_EXPIRATION:
+		    return true
+		else:
+	 	    # delete entry if expired
+		    del localunits[name]
+    		    return false
+            else:
+                return false
         try:
-            self.recipients["DAX"].send(body)
-            logger.info("sent message from unit to dax")
+            msg = Message.decode(body)
+            if can_send_local(msg.destination):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.sendto(body, localunits[name])
+            else:
+                self.recipients["DAX"].send(body)
+                logger.info("sent message from unit to dax")
         except Exception as real_exception:
             print "*** an exception occured in the callback delivery function ***"
             print traceback.format_exc()
             print "*** now re-raising the exception. pika exception to follow ***"
             raise real_exception
+
+    class UDPMessageHandler(SocketServer.BaseRequestHandler):
+      def handle(self):
+        logger.info("Received UDP message")
+        data = self.request[0].strip()
+        socket = self.request[1]
+        print "*** UDP MESSAGE RECEIVED: " + str(data) + " ***"
+        message = Message.decode(data)
+        if (message.destination == "announce"):
+            Communicator.localunits[message.source] = (self.client_address, datetime.now())
+            logger.info("Got multicast announce from " + str(self.client_address))
+        else:
+            cm.msgin_channel.basic_publish(exchange="msgin", routing_key = "", body=data)
+
+    def initialize_udp_server(self):
+      UDP_HOST = "0.0.0.0"
+      server = SocketServer.UDPServer((UDP_HOST, UDP_PORT), Communicator.UDPMessageHandler)
+      udp_listener = threading.Thread(target=server.serve_forever)
+      udp_listener.daemon = True
+      udp_listener.start()
+
+      def send_broadcast():
+        while True:
+          multicast_dest = (UDP_MULTICAST_IP, UDP_PORT)
+          sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+          sock.settimeout(0.2)
+          ttl = struct.pack('b', 1)
+          sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+          msg =  Message("source", "announce", "Message")
+          sock.sendto(Message.encode(msg), multicast_dest)
+          logger.info("Sending UDP broadcast")
+          time.sleep(UDP_MULTICAST_DELAY)
+
+      udp_broadcast = threading.Thread(target=send_broadcast)
+      udp_broadcast.daemon = True
+      udp_broadcast.start()
 
 
 if __name__ == "__main__":
@@ -226,6 +285,10 @@ if __name__ == "__main__":
     logger.info("Communicator Module (WebSocket client) starting ...")
     
     cm = Communicator()
+
+    logger.info("UDP Server starting...")
+    cm.initialize_udp_server()
+    logger.info("UDP Server Listening")
    
     
     # DAX WebSocket (remote component)
