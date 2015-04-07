@@ -21,7 +21,7 @@ from blockytalky_id import *
 from message import *
 import traceback
 
-LOCAL_IP_LISTING_EXPIRATION = 15 # seconds
+LOCAL_IP_LISTING_EXPIRATION = 60 # seconds
 UDP_MULTICAST_IP = "224.0.0.1"
 UDP_MULTICAST_DELAY = 10 # seconds
 UDP_PORT = 9999
