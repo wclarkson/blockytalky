@@ -21,7 +21,7 @@ from blockytalky_id import *
 from message import *
 import traceback
 
-LOCAL_IP_LISTING_EXPIRATION = 15 # seconds
+LOCAL_IP_LISTING_EXPIRATION = 60 # seconds
 UDP_MULTICAST_IP = "224.0.0.1"
 UDP_MULTICAST_DELAY = 10 # seconds
 UDP_PORT = 9999
@@ -34,6 +34,7 @@ class Communicator(object):
     localunits = {}
     restartQueue = deque()
     mostRecentCode = None
+    udpSocket = None
 
     RECONNECT_INTERVAL = 2
 
@@ -208,23 +209,21 @@ class Communicator(object):
     
     def handle_msgout_delivery(self, channel, method, header, body):
         def can_send_local(name):
-            if name in localunits:
-                if datetime.now() - localunits[name][1] < LOCAL_IP_LISTING_EXPIRATION:
-		    return true
+            if name in Communicator.localunits:
+                if (datetime.now() - Communicator.localunits[name][1]).total_seconds() < LOCAL_IP_LISTING_EXPIRATION:
+		    return True
 		else:
 	 	    # delete entry if expired
-		    del localunits[name]
-    		    return false
+		    del Communicator.localunits[name]
+    		    return False
             else:
-                return false
+                return False
         try:
             msg = Message.decode(body)
             if can_send_local(msg.destination):
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.sendto(body, localunits[name])
+                Communicator.udpSocket.sendto(body, Communicator.localunits[msg.destination][0])
             else:
                 self.recipients["DAX"].send(body)
-                logger.info("sent message from unit to dax")
         except Exception as real_exception:
             print "*** an exception occured in the callback delivery function ***"
             print traceback.format_exc()
@@ -236,17 +235,21 @@ class Communicator(object):
         logger.info("Received UDP message")
         data = self.request[0].strip()
         socket = self.request[1]
-        print "*** UDP MESSAGE RECEIVED: " + str(data) + " ***"
+        #logger.info("*** UDP Message Received: " + str(data) + " ***")
         message = Message.decode(data)
         if (message.destination == "announce"):
             Communicator.localunits[message.source] = (self.client_address, datetime.now())
-            logger.info("Got multicast announce from " + str(self.client_address))
+            #logger.info("Got multicast announce from " + str(self.client_address))
         else:
             cm.msgin_channel.basic_publish(exchange="msgin", routing_key = "", body=data)
 
     def initialize_udp_server(self):
       UDP_HOST = "0.0.0.0"
       server = SocketServer.UDPServer((UDP_HOST, UDP_PORT), Communicator.UDPMessageHandler)
+      Communicator.udpSocket = server.socket
+      Communicator.udpSocket.settimeout(0.2)
+      ttl = struct.pack('b', 1)
+      Communicator.udpSocket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
       udp_listener = threading.Thread(target=server.serve_forever)
       udp_listener.daemon = True
       udp_listener.start()
@@ -254,13 +257,10 @@ class Communicator(object):
       def send_broadcast():
         while True:
           multicast_dest = (UDP_MULTICAST_IP, UDP_PORT)
-          sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-          sock.settimeout(0.2)
-          ttl = struct.pack('b', 1)
-          sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
-          msg =  Message("source", "announce", "Message")
-          sock.sendto(Message.encode(msg), multicast_dest)
-          logger.info("Sending UDP broadcast")
+          #sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+          msg =  Message(BlockyTalkyID(), "announce", "Message")
+          Communicator.udpSocket.sendto(Message.encode(msg), multicast_dest)
+          #logger.info("Sending UDP broadcast")
           time.sleep(UDP_MULTICAST_DELAY)
 
       udp_broadcast = threading.Thread(target=send_broadcast)
@@ -286,9 +286,7 @@ if __name__ == "__main__":
     
     cm = Communicator()
 
-    logger.info("UDP Server starting...")
     cm.initialize_udp_server()
-    logger.info("UDP Server Listening")
    
     
     # DAX WebSocket (remote component)
